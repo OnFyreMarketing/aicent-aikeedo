@@ -1,0 +1,197 @@
+<!-- Cost Preview Widget - Vollständig Inline Alpine.js -->
+<div id="cost-preview-widget" 
+     class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-4 border border-gray-200 dark:border-gray-700" 
+     x-data="{
+        showWidget: true,
+        isLoading: false,
+        result: null,
+        hasError: false,
+        errorMessage: '',
+        debounceTimer: null,
+        currentRequest: null,
+        lastPrompt: '',
+        
+        init() {
+            console.log('Cost Preview Widget: Initialisierung gestartet');
+            this.$nextTick(() => {
+                this.setupPromptWatcher();
+                console.log('Cost Preview Widget: Bereit');
+            });
+        },
+        
+        setupPromptWatcher() {
+            const promptTextarea = document.querySelector('textarea[name=\'prompt\'], textarea[x-model=\'prompt\'], #prompt-input, [placeholder*=\'prompt\'], [placeholder*=\'Nachricht\']');
+            
+            if (promptTextarea) {
+                console.log('Cost Preview Widget: Prompt-Feld gefunden');
+                
+                promptTextarea.addEventListener('input', (e) => {
+                    this.handlePromptChange(e.target.value);
+                });
+                
+                promptTextarea.addEventListener('paste', (e) => {
+                    setTimeout(() => {
+                        this.handlePromptChange(e.target.value);
+                    }, 50);
+                });
+                
+                if (promptTextarea.value) {
+                    this.handlePromptChange(promptTextarea.value);
+                }
+            } else {
+                console.warn('Cost Preview Widget: Prompt-Feld nicht gefunden');
+                
+                let attempts = 0;
+                const findPromptField = () => {
+                    attempts++;
+                    const field = document.querySelector('textarea[name=\'prompt\'], textarea[x-model=\'prompt\'], #prompt-input, [placeholder*=\'prompt\'], [placeholder*=\'Nachricht\']');
+                    
+                    if (field) {
+                        console.log('Cost Preview Widget: Prompt-Feld gefunden (Fallback)');
+                        this.setupPromptWatcher();
+                    } else if (attempts < 10) {
+                        setTimeout(findPromptField, 1000);
+                    }
+                };
+                
+                setTimeout(findPromptField, 1000);
+            }
+        },
+        
+        handlePromptChange(prompt) {
+            const cleanPrompt = prompt ? prompt.trim() : '';
+            
+            if (cleanPrompt === this.lastPrompt) {
+                return;
+            }
+            
+            this.lastPrompt = cleanPrompt;
+            
+            clearTimeout(this.debounceTimer);
+            
+            if (cleanPrompt.length < 10) {
+                this.result = null;
+                this.hasError = false;
+                this.errorMessage = '';
+                return;
+            }
+            
+            this.debounceTimer = setTimeout(() => {
+                this.fetchCostEstimate(cleanPrompt);
+            }, 800);
+        },
+        
+        async fetchCostEstimate(prompt) {
+            this.isLoading = true;
+            this.hasError = false;
+            this.errorMessage = '';
+            
+            if (this.currentRequest) {
+                this.currentRequest.abort();
+            }
+            
+            try {
+                const controller = new AbortController();
+                this.currentRequest = controller;
+                
+                let model = 'gpt-3.5-turbo';
+                
+                const modelButton = document.querySelector('[x-text*=\'adapter\'], .model-selector, .adapter-name');
+                if (modelButton && modelButton.textContent) {
+                    const modelText = modelButton.textContent.trim();
+                    if (modelText && modelText !== 'undefined') {
+                        model = modelText;
+                    }
+                }
+                
+                console.log('Cost Preview Widget: Anfrage für Modell:', model);
+                
+                const response = await fetch('/api/cost-preview/estimate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        model: model
+                    }),
+                    signal: controller.signal
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Cost Preview Widget: Antwort erhalten:', data);
+                
+                if (data.status === 'success' && data.data) {
+                    this.result = data.data;
+                    this.hasError = false;
+                } else {
+                    this.hasError = true;
+                    this.errorMessage = data.message || 'Unbekannter Fehler bei der Kostenschätzung';
+                }
+                
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.error('Cost Preview Widget Fehler:', error);
+                    this.hasError = true;
+                    this.errorMessage = 'Kostenschätzung nicht verfügbar: ' + error.message;
+                }
+            } finally {
+                this.isLoading = false;
+                this.currentRequest = null;
+            }
+        }
+     }"
+     x-show="showWidget"
+     x-cloak>
+    
+    <!-- Loading State -->
+    <div x-show="isLoading" class="flex items-center gap-3 text-gray-600 dark:text-gray-400">
+        <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span class="text-sm">Kostenschätzung wird berechnet...</span>
+    </div>
+    
+    <!-- Success Result -->
+    <div x-show="!isLoading && result && !hasError" class="space-y-3">
+        <div class="flex items-center gap-2 mb-2">
+            <span class="text-lg">💰</span>
+            <h4 class="font-semibold text-gray-700 dark:text-gray-300">Kostenschätzung</h4>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-3 text-sm">
+            <div class="bg-white dark:bg-gray-700 p-3 rounded">
+                <div class="text-gray-500 dark:text-gray-400">Input Token</div>
+                <div class="font-semibold text-gray-700 dark:text-gray-200" x-text="result ? result.input_tokens || '-' : '-'"></div>
+            </div>
+            <div class="bg-white dark:bg-gray-700 p-3 rounded">
+                <div class="text-gray-500 dark:text-gray-400">Geschätzte Ausgabe</div>
+                <div class="font-semibold text-gray-700 dark:text-gray-200" x-text="result ? result.assumed_output_tokens || '-' : '-'"></div>
+            </div>
+        </div>
+        
+        <div class="bg-green-50 dark:bg-green-900/20 p-3 rounded">
+            <div class="text-green-600 dark:text-green-400 text-sm">Geschätzte Kosten</div>
+            <div class="font-bold text-green-700 dark:text-green-300 text-lg">
+                <span x-text="result ? result.total_estimated_credits || '0' : '0'"></span> Credits
+            </div>
+        </div>
+        
+        <div x-show="result && result.message" class="text-xs text-gray-500 dark:text-gray-400 italic" x-text="result ? result.message || '' : ''"></div>
+    </div>
+    
+    <!-- Error State -->
+    <div x-show="!isLoading && hasError" class="bg-red-50 dark:bg-red-900/20 p-3 rounded">
+        <div class="flex items-center gap-2 text-red-600 dark:text-red-400">
+            <span>⚠️</span>
+            <span class="text-sm" x-text="errorMessage"></span>
+        </div>
+    </div>
+</div>
